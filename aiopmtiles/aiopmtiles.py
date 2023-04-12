@@ -79,27 +79,26 @@ class Reader:
     async def get_tile(self, z, x, y) -> Optional[bytes]:
         """Get Tile Data."""
         tile_id = zxy_to_tileid(z, x, y)
-        data = None
 
         dir_offset = self._header["root_offset"]
-        dir_length = self._header["root_length"] - 1
-        for _depth in range(0, 4):  # max depth
-            directory_values = await self._get(dir_offset, dir_length)
+        dir_length = self._header["root_length"]
+        for _ in range(0, 4):  # max depth
+            directory_values = await self._get(dir_offset, dir_length - 1)
             directory = deserialize_directory(directory_values)
 
-            result = find_tile(directory, tile_id)
-            if result:
+            if result := find_tile(directory, tile_id):
                 if result.run_length == 0:
                     dir_offset = self._header["leaf_directory_offset"] + result.offset
-                    dir_length = result.length - 1
+                    dir_length = result.length
 
                 else:
                     data = await self._get(
                         self._header["tile_data_offset"] + result.offset,
                         result.length - 1,
                     )
+                    return data
 
-        return data
+        return None
 
     @property
     def minzoom(self) -> int:
