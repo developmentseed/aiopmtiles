@@ -53,41 +53,140 @@ async def tilejson(
 ):
     """get TileJSON."""
     async with Reader(url) as src:
-        header = src.header
-        meta = await src.metadata()
+        tilejson = {
+            "tilejson": "3.0.0",
+            "name": "pmtiles",
+            "version": "1.0.0",
+            "scheme": "xyz",
+            "tiles": [
+                str(request.url_for("tiles", z="{z}", x="{x}", y="{y}")) + f"?url={url}"
+            ],
+            "minzoom": src.minzoom,
+            "maxzoom": src.maxzoom,
+            "bounds": src.bounds,
+            "center": src.center,
+        }
 
-    bounds = [
-        c / 10000000
-        for c in [
-            header["min_lon_e7"],
-            header["min_lat_e7"],
-            header["max_lon_e7"],
-            header["max_lat_e7"],
-        ]
-    ]
-
-    minzoom = header["min_zoom"]
-    maxzoom = header["max_zoom"]
-    tilejson = {
-        "tilejson": "3.0.0",
-        "name": "pmtiles",
-        "version": "1.0.0",
-        "scheme": "xyz",
-        "tiles": [
-            str(request.url_for("tiles", z="{z}", x="{x}", y="{y}")) + f"?url={url}"
-        ],
-        "minzoom": minzoom,
-        "maxzoom": maxzoom,
-        "bounds": bounds,
-        "center": [
-            (bounds[0] + bounds[2]) / 2,
-            (bounds[1] + bounds[3]) / 2,
-            minzoom,
-        ],
-    }
-
-    if vector_layers := meta.get("vector_layers"):
-        tilejson["vector_layers"] = vector_layers
+        # If Vector Tiles then we can try to add more metadata
+        if src.is_vector:
+            if vector_layers := meta.get("vector_layers"):
+                tilejson["vector_layers"] = vector_layers
 
     return tilejson
+
+
+@app.get("/style.json")
+async def stylejson(
+    request: Request,
+    url: str = Query(..., description="PMTiles archive URL."),
+):
+    """get StyleJSON."""
+    tiles_url = str(request.url_for("tiles", z="{z}", x="{x}", y="{y}")) + f"?url={url}"
+
+    async with Reader(url) as src:
+        if src.is_vector:
+            style_json = {
+                "version": 8,
+                "sources": {
+                    "pmtiles": {
+                        "type": "vector",
+                        "scheme": "xyz",
+                        "tiles": [tiles_url],
+                        "minzoom": src.minzoom,
+                        "maxzoom": src.maxzoom,
+                        "bounds": src.bounds,
+                    },
+                },
+                "layers": [],
+                "center": [src.center[0], src.center[1]],
+                "zoom": src.center[2],
+            }
+
+            meta = await src.metadata()
+            if vector_layers := meta.get("vector_layers"):
+                for layer in vector_layers:
+                    layer_id = layer["id"]
+                    if layer_id == "mask":
+                        style_json["layers"].append(
+                            {
+                                "id": f"{layer_id}_fill",
+                                "type": "fill",
+                                "source": "pmtiles",
+                                "source-layer": layer_id,
+                                "filter": ["==", ["geometry-type"], "Polygon"],
+                                "paint": {
+                                    'fill-color': 'black',
+                                    'fill-opacity': 0.8
+                                },
+                            }
+                        )
+
+                    else:
+                        style_json["layers"].append(
+                            {
+                                "id": f"{layer_id}_fill",
+                                "type": "fill",
+                                "source": "pmtiles",
+                                "source-layer": layer_id,
+                                "filter": ["==", ["geometry-type"], "Polygon"],
+                                "paint": {
+                                    'fill-color': 'rgba(200, 100, 240, 0.4)',
+                                    'fill-outline-color': '#000'
+                                },
+                            }
+                        )
+
+                    style_json["layers"].append(
+                        {
+                            "id": f"{layer_id}_stroke",
+                            "source": 'pmtiles',
+                            "source-layer": layer_id,
+                            "type": 'line',
+                            "filter": ["==", ["geometry-type"], "LineString"],
+                            "paint": {
+                                'line-color': '#000',
+                                'line-width': 1,
+                                'line-opacity': 0.75
+                            }
+                        }
+                    )
+                    style_json["layers"].append(
+                        {
+                            "id": f"{layer_id}_point",
+                            "source": 'pmtiles',
+                            "source-layer": layer_id,
+                            "type": 'circle',
+                            "filter": ["==", ["geometry-type"], "Point"],
+                            "paint": {
+                                'circle-color': '#000',
+                                'circle-radius': 2.5,
+                                'circle-opacity': 0.75
+                            }
+                        }
+                    )
+
+        else:
+            style_json = {
+                "sources": {
+                    "pmtiles": {
+                        "type": "raster",
+                        "scheme": "xyz",
+                        "tiles": [tiles_url],
+                        "minzoom": src.minzoom,
+                        "maxzoom": src.maxzoom,
+                        "bounds": src.bounds,
+                    },
+                },
+                "layers": [
+                    {
+                        "id": "raster",
+                        "type": "raster",
+                        "source": "pmtiles",
+                    },
+                ],
+                "center": [src.center[0], src.center[1]],
+                "zoom": src.center[2],
+            }
+
+    return style_json
 ```
