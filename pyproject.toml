@@ -32,6 +32,7 @@ aws = [
 test = [
     "pytest",
     "pytest-cov",
+    "pytest-asyncio",
 ]
 dev = [
     "pre-commit",
