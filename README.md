@@ -32,13 +32,13 @@
 ## Installation
 
 ```bash
-$ pip install pip -U
+$ python -m pip install pip -U
 
 # From Pypi
-$ pip install aiopmtiles
+$ python -m pip install aiopmtiles
 
 # Or from source
-$ pip install git+http://github.com/developmentseed/aiopmtiles
+$ python -m pip install git+http://github.com/developmentseed/aiopmtiles
 ```
 
 ## Example

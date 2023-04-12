@@ -7,7 +7,7 @@ Issues and pull requests are more than welcome.
 ```bash
 $ git clone https://github.com/developmentseed/aiopmtiles.git
 $ cd aiopmtiles
-$ pip install -e .["test","dev"]
+$ python -m pip install -e .["test","dev","aws"]
 ```
 
 You can then run the tests with the following command:

@@ -19,6 +19,7 @@ extra:
 # Layout
 nav:
   - Home: 'index.md'
+  - Usage: 'usage.md'
   - Development - Contributing: 'contributing.md'
   - Release Notes: 'release-notes.md'
 

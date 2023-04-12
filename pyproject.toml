@@ -21,17 +21,13 @@ dynamic = ["version"]
 dependencies = [
     "pmtiles",
     "httpx",
-    "aioboto3",
     "aiofiles",
     "aiocache",
 ]
 
 [project.optional-dependencies]
-server = [
-    "click",
-    "fastapi",
-    "jinja2",
-    "uvicorn",
+aws = [
+    "aioboto3"
 ]
 test = [
     "pytest",
@@ -100,6 +96,3 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
     "B905",  # ignore zip() without an explicit strict= parameter, only support with python >3.10
 ]
-
-[project.scripts]
-aiopmtiles = "aiopmtiles.scripts.cli:cli"

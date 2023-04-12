@@ -2,13 +2,19 @@
 
 import abc
 import os
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
-import aioboto3
 import aiofiles
 import httpx
+
+try:
+    import aioboto3
+
+except ImportError:  # pragma: nocover
+    aioboto3 = None  # type: ignore
 
 
 @dataclass
@@ -16,6 +22,7 @@ class FileSystem(abc.ABC):
     """Filesystem base class"""
 
     filepath: str
+    ctx: AsyncExitStack = field(default_factory=AsyncExitStack, init=False)
 
     @abc.abstractmethod
     async def get(self, offset: int, length: int) -> bytes:
@@ -27,40 +34,35 @@ class FileSystem(abc.ABC):
         """Async context management"""
         ...
 
-    @abc.abstractmethod
-    async def close(self):
-        """close FileSystem."""
-        ...
-
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """async context management"""
-        await self.close()
+        await self.ctx.aclose()
 
     @classmethod
-    def create_from_filepath(cls, filepath: str, **kwargs) -> "FileSystem":
+    def create_from_filepath(cls, filepath: str, **kwargs: Any) -> "FileSystem":
         """Instantiate the appropriate filesystem based on filepath scheme"""
         parsed = urlparse(filepath)
 
         if parsed.scheme in {"http", "https"}:
-            return Http(filepath)
+            return HttpFileSystem(filepath, **kwargs)
 
         elif parsed.scheme == "s3":
-            return S3(filepath)
+            return S3FileSystem(filepath, **kwargs)
 
         elif parsed.scheme == "file":
-            return Local(filepath)
+            return LocalFileSystem(filepath, **kwargs)
 
         # Invalid Scheme
         elif parsed.scheme:
             raise ValueError(f"'{parsed.scheme}' is not supported")
 
-        # fallback to FileBackend
+        # fallback to LocalFileSystem
         else:
-            return Local(filepath)
+            return LocalFileSystem(filepath, **kwargs)
 
 
 @dataclass
-class Local(FileSystem):
+class LocalFileSystem(FileSystem):
     """Local (disk) filesystem"""
 
     file: Any = field(init=False)
@@ -72,16 +74,14 @@ class Local(FileSystem):
 
     async def __aenter__(self):
         """Async context management"""
-        self.file = await aiofiles.open(self.filepath, "rb")
+        self.file = await self.ctx.enter_async_context(
+            aiofiles.open(self.filepath, "rb")
+        )
         return self
-
-    async def close(self):
-        """Close file."""
-        await self.file.close()
 
 
 @dataclass
-class Http(FileSystem):
+class HttpFileSystem(FileSystem):
     """HTTP filesystem"""
 
     client: httpx.AsyncClient = field(init=False)
@@ -95,38 +95,40 @@ class Http(FileSystem):
 
     async def __aenter__(self):
         """Async context management"""
-        self.client = httpx.AsyncClient()
+        self.client = await self.ctx.enter_async_context(httpx.AsyncClient())
         return self
-
-    async def close(self):
-        """Close Connection."""
-        await self.client.aclose()
 
 
 @dataclass
-class S3(FileSystem):
+class S3FileSystem(FileSystem):
     """S3 filesystem"""
 
-    resource: Any = field(init=False)
-    obj: Any = field(init=False)
+    request_payer: bool = False
+
+    _session: Any = field(init=False)
+    _resource: Any = field(init=False)
+    _obj: Any = field(init=False)
+
+    def __post_init__(self):
+        """Check for dependency."""
+        assert aioboto3 is not None, "'aioboto3' must be installed to use S3 FileSystem"
 
     async def get(self, offset: int, length: int) -> bytes:
         """Perform a range request"""
         kwargs = {}
-        if request_payer := os.getenv("AWS_REQUEST_PAYER"):
-            kwargs["RequestPayer"] = request_payer
+        if self.request_payer:
+            kwargs["RequestPayer"] = self.request_payer
 
-        req = await self.obj.get(Range=f"bytes={offset}-{offset + length}", **kwargs)
+        req = await self._obj.get(Range=f"bytes={offset}-{offset + length}", **kwargs)
 
         return await req["Body"].read()
 
     async def __aenter__(self):
         """Async context management"""
         parsed = urlparse(self.filepath)
-        self.resource = await aioboto3.resource("s3").__aenter__()
-        self.obj = await self.resource.Object(parsed.netloc, parsed.path.strip("/"))
+        self._session = aioboto3.Session()
+        self._resource = await self.ctx.enter_async_context(
+            self._session.resource("s3")
+        )
+        self._obj = await self._resource.Object(parsed.netloc, parsed.path.strip("/"))
         return self
-
-    async def close(self):
-        """Close resource."""
-        await self.resource.close()

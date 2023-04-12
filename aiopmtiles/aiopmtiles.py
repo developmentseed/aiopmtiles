@@ -4,11 +4,12 @@ import gzip
 import json
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Protocol
+from typing import Dict, Optional, Protocol, Tuple
 
 from aiocache import Cache, cached
 from pmtiles.tile import (
     Compression,
+    TileType,
     deserialize_directory,
     deserialize_header,
     find_tile,
@@ -28,6 +29,7 @@ class Reader:
     """PMTiles Reader."""
 
     filepath: str
+    options: Optional[Dict] = field(default_factory=dict)
 
     fs: FileSystem = field(init=False)
 
@@ -40,14 +42,14 @@ class Reader:
     async def __aenter__(self):
         """Support using with Context Managers."""
         self.fs = await self._ctx.enter_async_context(
-            FileSystem.create_from_filepath(self.filepath)
+            FileSystem.create_from_filepath(self.filepath, **self.options)
         )
 
         header_values = await self._get(self._header_offset, self._header_length)
         spec_version = header_values[7]
         assert spec_version == 3, "Only Version 3 of PMTiles specification is supported"
 
-        self.header = deserialize_header(header_values)
+        self._header = deserialize_header(header_values)
 
         return self
 
@@ -66,10 +68,10 @@ class Reader:
     async def metadata(self) -> Dict:
         """Return PMTiles Metadata."""
         metadata = await self._get(
-            self.header["metadata_offset"],
-            self.header["metadata_length"] - 1,
+            self._header["metadata_offset"],
+            self._header["metadata_length"] - 1,
         )
-        if self.header["internal_compression"] == Compression.GZIP:
+        if self._header["internal_compression"] == Compression.GZIP:
             metadata = gzip.decompress(metadata)
 
         return json.loads(metadata)
@@ -79,8 +81,8 @@ class Reader:
         tile_id = zxy_to_tileid(z, x, y)
         data = None
 
-        dir_offset = self.header["root_offset"]
-        dir_length = self.header["root_length"] - 1
+        dir_offset = self._header["root_offset"]
+        dir_length = self._header["root_length"] - 1
         for _depth in range(0, 4):  # max depth
             directory_values = await self._get(dir_offset, dir_length)
             directory = deserialize_directory(directory_values)
@@ -88,13 +90,52 @@ class Reader:
             result = find_tile(directory, tile_id)
             if result:
                 if result.run_length == 0:
-                    dir_offset = self.header["leaf_directory_offset"] + result.offset
+                    dir_offset = self._header["leaf_directory_offset"] + result.offset
                     dir_length = result.length - 1
 
                 else:
                     data = await self._get(
-                        self.header["tile_data_offset"] + result.offset,
+                        self._header["tile_data_offset"] + result.offset,
                         result.length - 1,
                     )
 
         return data
+
+    @property
+    def minzoom(self) -> int:
+        """Return minzoom."""
+        return self._header["min_zoom"]
+
+    @property
+    def maxzoom(self) -> int:
+        """Return maxzoom."""
+        return self._header["max_zoom"]
+
+    @property
+    def bounds(self) -> Tuple[float, float, float, float]:
+        """Return Archive Bounds."""
+        return (
+            self._header["min_lon_e7"] / 10000000,
+            self._header["min_lat_e7"] / 10000000,
+            self._header["max_lon_e7"] / 10000000,
+            self._header["max_lat_e7"] / 10000000,
+        )
+
+    @property
+    def center(self) -> Tuple[float, float, int]:
+        """Return Archive center."""
+        return (
+            self._header["center_lon_e7"] / 10000000,
+            self._header["center_lat_e7"] / 10000000,
+            self._header["center_zoom"],
+        )
+
+    @property
+    def is_vector(self) -> bool:
+        """Return tile type."""
+        return self._header["tile_type"] == TileType.MVT
+
+    @property
+    def tile_compression(self) -> Compression:
+        """Return tile compression type."""
+        return self._header["tile_compression"]
