@@ -1,1 +1,1 @@
-"""rio-stac tests suite."""
+"""aiopmtiles tests suite."""
