@@ -29,6 +29,10 @@
 
 ---
 
+`aiopmtiles` is a python `Async I/O` version of the great [PMTiles](https://github.com/protomaps/PMTiles) python reader.
+
+The [**PMTiles**](https://github.com/protomaps/PMTiles) format is a *Cloud-optimized + compressed single-file tile archives for vector and raster maps*.
+
 ## Installation
 
 ```bash
