@@ -28,6 +28,7 @@ async def test_reader_vector():
         assert src.is_vector
         assert src.tile_compression.name == "GZIP"
         assert not src.fs.file.closed
+        assert src.tile_type.name == "MVT"
 
         metadata = await src.metadata()
         assert "attribution" in metadata
@@ -49,6 +50,7 @@ async def test_reader_raster():
         assert not src.is_vector
         assert src.tile_compression.name == "NONE"
         assert not src.fs.file.closed
+        assert src.tile_type.name == "WEBP"
 
         metadata = await src.metadata()
         assert "attribution" in metadata

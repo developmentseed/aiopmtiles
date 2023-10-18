@@ -138,3 +138,8 @@ class Reader:
     def tile_compression(self) -> Compression:
         """Return tile compression type."""
         return self._header["tile_compression"]
+
+    @property
+    def tile_type(self) -> TileType:
+        """Return tile type."""
+        return self._header["tile_type"]
